@@ -2,82 +2,100 @@ import streamlit as st
 import pandas as pd
 import joblib
 
-# Load saved files
+# Load model files
 model = joblib.load("rf_model_small.pkl")
 scaler = joblib.load("scaler.pkl")
 encoder = joblib.load("label_encoder.pkl")
 
-# Page settings
 st.set_page_config(
-    page_title="Network Intrusion Detection",
+    page_title="CyberGuard AI",
     page_icon="🛡️",
     layout="wide"
 )
 
-# Title
-st.title("🛡️ Network Intrusion Detection System")
-st.write("Upload a CSV file containing network traffic data and detect potential attacks.")
+st.title("🛡️ CyberGuard AI")
+st.caption("Network Intrusion Detection Assistant")
 
-# Upload CSV
+if "messages" not in st.session_state:
+    st.session_state.messages = []
+
+# Show chat history
+for msg in st.session_state.messages:
+    with st.chat_message(msg["role"]):
+        st.markdown(msg["content"])
+
 uploaded_file = st.file_uploader(
     "Upload Network Traffic CSV",
     type=["csv"]
 )
 
-if uploaded_file is not None:
+prompt = st.chat_input("Ask CyberGuard AI to analyze your traffic...")
 
-    try:
-        # Read CSV
+if prompt:
+
+    st.session_state.messages.append(
+        {"role": "user", "content": prompt}
+    )
+
+    with st.chat_message("user"):
+        st.markdown(prompt)
+
+    if uploaded_file is None:
+
+        response = """
+Please upload a network traffic CSV file first.
+"""
+
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response}
+        )
+
+    else:
+
         df = pd.read_csv(uploaded_file)
 
-        st.subheader("Uploaded Dataset")
-        st.dataframe(df.head())
+        X_scaled = scaler.transform(df)
 
-        st.write(f"Rows: {df.shape[0]}")
-        st.write(f"Columns: {df.shape[1]}")
+        predictions = model.predict(X_scaled)
 
-        # Predict button
-        if st.button("Run Detection"):
+        labels = encoder.inverse_transform(predictions)
 
-            # Scale data
-            X_scaled = scaler.transform(df)
+        attack_counts = pd.Series(labels).value_counts()
 
-            # Predict
-            predictions = model.predict(X_scaled)
+        total = len(labels)
 
-            # Convert numeric labels back to names
-            attack_labels = encoder.inverse_transform(predictions)
+        summary = []
 
-            # Create result dataframe
-            result_df = df.copy()
-            result_df["Prediction"] = attack_labels
-
-            st.subheader("Prediction Results")
-            st.dataframe(result_df.head(20))
-
-            # Attack summary
-            st.subheader("Attack Summary")
-
-            attack_counts = pd.Series(
-                attack_labels
-            ).value_counts()
-
-            st.bar_chart(attack_counts)
-
-            st.write(attack_counts)
-
-            # Download results
-            csv = result_df.to_csv(index=False)
-
-            st.download_button(
-                label="Download Results",
-                data=csv,
-                file_name="intrusion_detection_results.csv",
-                mime="text/csv"
+        for attack, count in attack_counts.items():
+            percentage = (count / total) * 100
+            summary.append(
+                f"- **{attack}** : {count} records ({percentage:.2f}%)"
             )
 
-    except Exception as e:
-        st.error(f"Error: {e}")
+        response = f"""
+### Analysis Complete
 
-else:
-    st.info("Please upload a CSV file to begin detection.")
+Total Records Analyzed: **{total}**
+
+### Detected Traffic Types
+
+{chr(10).join(summary)}
+
+### Security Assessment
+
+The uploaded network traffic has been analyzed successfully.
+Review the detected attack categories and investigate any malicious traffic.
+"""
+
+        with st.chat_message("assistant"):
+            st.markdown(response)
+
+            st.subheader("Traffic Distribution")
+            st.bar_chart(attack_counts)
+
+        st.session_state.messages.append(
+            {"role": "assistant", "content": response}
+        )
